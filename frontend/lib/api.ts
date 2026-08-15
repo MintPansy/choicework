@@ -24,6 +24,8 @@ async function get<T>(path: string): Promise<T> {
 
 // 백엔드 /jobs/live-with-env 응답 형태
 interface LiveJobItem {
+  /** 공고 내용 기반 안정 식별자 (백엔드 live_job_service._stable_id). 응답 순서가 바뀌어도 동일 공고는 동일 id */
+  id: string;
   recruitmentPeriod: string;
   businessName: string;
   contactNumber: string;
@@ -124,7 +126,8 @@ function generateTags(item: LiveJobItem): string[] {
 
 function mapLiveJobToJob(item: LiveJobItem, index: number): Job {
   return {
-    id: String(index),
+    // 백엔드가 id를 못 보내는(구버전) 경우에 한해서만 index로 대체
+    id: item.id || String(index),
     friendlinessScore: computeAccessibilityScore(item),
     title: item.jobName || "직무명 없음",
     companyName: item.businessName || "기업명 없음",

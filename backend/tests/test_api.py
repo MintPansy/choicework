@@ -83,6 +83,49 @@ def test_accessibility_institutions_no_param_ok():
     assert isinstance(res.json(), list)
 
 
+def test_stable_id_is_deterministic_and_content_based():
+    from app.services.live_job_service import _stable_id
+
+    item_a = {
+        "businessName": "삼성전자",
+        "jobName": "생산직",
+        "applicationDate": "20260101",
+        "contactNumber": "02-1234-5678",
+        "registeredAt": "20251201",
+        "companyAddress": "경기 수원시",
+    }
+    item_b = {**item_a, "jobName": "사무직"}
+
+    assert _stable_id(item_a) == _stable_id(dict(item_a))
+    assert _stable_id(item_a) != _stable_id(item_b)
+    assert len(_stable_id(item_a)) == 16
+
+
+def test_normalize_item_id_is_stable_across_raw_and_env_variants():
+    """같은 공고의 raw/env 응답은 필드가 달라도(env 필드 유무) id가 같아야 병합이 올바르게 된다."""
+    from app.services.live_job_service import _normalize_item
+
+    raw_source = {
+        "busplaName": "테스트기업",
+        "jobNm": "테스트직무",
+        "offerregDt": "20260101",
+        "cntctNo": "02-0000-0000",
+        "regDt": "20251230",
+        "compAddr": "서울 강남구",
+    }
+    env_source = {**raw_source, "envEyesight": "일상적 활동 가능"}
+
+    raw_item = _normalize_item(raw_source, with_env=False)
+    env_item = _normalize_item(env_source, with_env=True)
+
+    assert raw_item["id"]
+    assert raw_item["id"] == env_item["id"]
+
+    # 응답 순서가 바뀌어 index가 달라져도(=index를 아예 안 쓰므로) id는 내용에만 의존한다
+    reordered_env_item = _normalize_item(dict(env_source), with_env=True)
+    assert reordered_env_item["id"] == env_item["id"]
+
+
 def test_gg_json_parser_legacy_list_root():
     """구형: [{서비스키: [ head 블록, row 블록 ]}]"""
     sample = [

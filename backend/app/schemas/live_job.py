@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 
 class LiveJob(BaseModel):
+    id: str = ""
     recruitmentPeriod: str = ""
     businessName: str = ""
     contactNumber: str = ""

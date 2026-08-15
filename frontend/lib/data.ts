@@ -53,6 +53,25 @@ function disableApiTemporarily(reason: unknown): void {
   );
 }
 
+/**
+ * 폴백 캐스케이드의 "한 단계"를 표준화하는 헬퍼.
+ * guard가 false면 아예 호출하지 않고(백엔드를 안 쓰기로 한 상태 등), 호출이 실패하면
+ * 쿨다운을 걸고 조용히 undefined를 반환한다 — 호출부는 다음 소스로 넘어가면 된다.
+ */
+async function attempt<T>(guard: boolean, source: () => Promise<T>): Promise<T | undefined> {
+  if (!guard) return undefined;
+  try {
+    return await source();
+  } catch (error) {
+    disableApiTemporarily(error);
+    return undefined;
+  }
+}
+
+function findById<T extends { id: string }>(items: T[] | undefined, id: string): T | undefined {
+  return items?.find((item) => item.id === id);
+}
+
 const emptyAccessibilitySummary: AccessibilitySummary = {
   regions: [],
   maxCount: 0,
@@ -63,39 +82,20 @@ export async function getRatingMethodology(): Promise<CompanyRatingMethodology |
   if (isDevCompanyDemoMode()) {
     return DEMO_RATING_METHODOLOGY;
   }
-  if (!shouldUseApi()) return null;
-  try {
-    return await api.ratingMethodology();
-  } catch (error) {
-    disableApiTemporarily(error);
-    return null;
-  }
+  const result = await attempt(shouldUseApi(), () => api.ratingMethodology());
+  return result ?? null;
 }
 
 export async function getAccessibilitySummary(): Promise<AccessibilitySummary> {
-  if (!shouldUseApi()) {
-    return emptyAccessibilitySummary;
-  }
-  try {
-    return await api.accessibilitySummary();
-  } catch (error) {
-    disableApiTemporarily(error);
-    return emptyAccessibilitySummary;
-  }
+  const result = await attempt(shouldUseApi(), () => api.accessibilitySummary());
+  return result ?? emptyAccessibilitySummary;
 }
 
 export async function getAccessibilityInstitutions(
   sigunNm?: string
 ): Promise<ActivitySupportInstitution[]> {
-  if (!shouldUseApi()) {
-    return [];
-  }
-  try {
-    return await api.accessibilityInstitutions(sigunNm);
-  } catch (error) {
-    disableApiTemporarily(error);
-    return [];
-  }
+  const result = await attempt(shouldUseApi(), () => api.accessibilityInstitutions(sigunNm));
+  return result ?? [];
 }
 
 export async function getCompanies(): Promise<Company[]> {
@@ -109,11 +109,7 @@ export async function getCompaniesWithMeta(): Promise<{
   companies: Company[];
 }> {
   if (isDevCompanyDemoMode()) {
-    return {
-      source: "static",
-      syncedAt: null,
-      companies: mockCompanies,
-    };
+    return { source: "static", syncedAt: null, companies: mockCompanies };
   }
   if (!shouldUseApi()) {
     return {
@@ -122,97 +118,75 @@ export async function getCompaniesWithMeta(): Promise<{
       companies: ALLOW_MOCK_FALLBACK ? mockCompanies : [],
     };
   }
-  try {
-    const raw = await api.companies();
-    if (Array.isArray(raw)) {
-      return {
-        source: "static",
-        syncedAt: null,
-        companies: raw.map((c, i) => ({ ...c, id: String(i) })),
-      };
-    }
-    return {
-      source: raw.source ?? "static",
-      syncedAt: raw.syncedAt ?? null,
-      companies: raw.data.map((c, i) => ({ ...c, id: String(i) })),
-    };
-  } catch (error) {
-    disableApiTemporarily(error);
+
+  const raw = await attempt(true, () => api.companies());
+  if (raw === undefined) {
     return {
       source: "static",
       syncedAt: null,
       companies: ALLOW_MOCK_FALLBACK ? mockCompanies : [],
     };
   }
+  if (Array.isArray(raw)) {
+    return {
+      source: "static",
+      syncedAt: null,
+      companies: raw.map((c, i) => ({ ...c, id: String(i) })),
+    };
+  }
+  return {
+    source: raw.source ?? "static",
+    syncedAt: raw.syncedAt ?? null,
+    companies: raw.data.map((c, i) => ({ ...c, id: String(i) })),
+  };
 }
 
+/** 실데이터 소스 우선순위: 백엔드 live-merged → KEAD 직접 병합 → 백엔드 live-with-env → 백엔드 mock(/jobs) → 로컬 mock */
 export async function getJobs(numOfRows = 20): Promise<Job[]> {
-  if (shouldUseApi()) {
-    try {
-      const mergedFromBackend = await api.liveJobsMerged(1, numOfRows);
-      if (mergedFromBackend.length > 0) return mergedFromBackend;
-    } catch (error) {
-      disableApiTemporarily(error);
-    }
-  }
+  const merged = await attempt(shouldUseApi(), () => api.liveJobsMerged(1, numOfRows));
+  if (merged && merged.length > 0) return merged;
 
   const keadJobs = await getMergedKeadJobs(1, numOfRows);
   if (keadJobs.length > 0) return keadJobs;
 
   if (!shouldUseApi()) return ALLOW_MOCK_FALLBACK ? mockJobs : [];
-  try {
-    return await api.liveJobsWithEnv(1, numOfRows);
-  } catch (error) {
-    disableApiTemporarily(error);
-    try {
-      const fallbackJobs = await api.jobs();
-      return fallbackJobs.slice(0, numOfRows);
-    } catch {
-      return ALLOW_MOCK_FALLBACK ? mockJobs : [];
-    }
-  }
+
+  const withEnv = await attempt(true, () => api.liveJobsWithEnv(1, numOfRows));
+  if (withEnv) return withEnv;
+
+  const legacy = await attempt(true, () => api.jobs());
+  if (legacy) return legacy.slice(0, numOfRows);
+
+  return ALLOW_MOCK_FALLBACK ? mockJobs : [];
 }
 
-const PAGE_SIZE = 20;
+/**
+ * 상세 조회용 후보군 크기. job.id는 더 이상 배열 인덱스가 아니라 공고 내용 기반 안정 식별자이므로,
+ * "몇 번째까지 가져와야 하는지"를 알 수 없다 — 목록과 동일한 소스에서 충분히 큰 배치를 받아 id로 찾는다.
+ * (companies 쪽 job pool 매칭에서 이미 쓰는 규모(400~500)와 동일한 선상)
+ */
+const DETAIL_LOOKUP_COUNT = 500;
 
 export async function getJobById(id: string): Promise<Job | null> {
-  const idx = parseInt(id, 10);
-  if (isNaN(idx) || idx < 0) return null;
+  if (!id) return null;
 
-  /** 목록 `getJobs()`와 동일한 우선순위로 조회해 카드의 id와 상세 내용이 일치하도록 함 */
-  const fetchCount = Math.max(PAGE_SIZE, idx + 1);
+  const merged = await attempt(shouldUseApi(), () => api.liveJobsMerged(1, DETAIL_LOOKUP_COUNT));
+  const mergedHit = findById(merged, id);
+  if (mergedHit) return mergedHit;
 
-  if (shouldUseApi()) {
-    try {
-      const mergedFromBackend = await api.liveJobsMerged(1, fetchCount);
-      if (mergedFromBackend.length > idx) {
-        const row = mergedFromBackend[idx];
-        return row ? { ...row, id: String(idx) } : null;
-      }
-    } catch (error) {
-      disableApiTemporarily(error);
-    }
+  const keadJobs = await getMergedKeadJobs(1, DETAIL_LOOKUP_COUNT);
+  const keadHit = findById(keadJobs, id);
+  if (keadHit) return keadHit;
+
+  if (!shouldUseApi()) {
+    return ALLOW_MOCK_FALLBACK ? (findById(mockJobs, id) ?? null) : null;
   }
 
-  const keadJobs = await getMergedKeadJobs(1, fetchCount);
-  if (keadJobs.length > idx) {
-    return keadJobs[idx] ?? null;
-  }
+  const withEnv = await attempt(true, () => api.liveJobsWithEnv(1, DETAIL_LOOKUP_COUNT));
+  const envHit = findById(withEnv, id);
+  if (envHit) return envHit;
 
-  if (!shouldUseApi()) return ALLOW_MOCK_FALLBACK ? (mockJobs[idx] ?? null) : null;
-
-  const page = Math.floor(idx / PAGE_SIZE) + 1;
-  const localIdx = idx % PAGE_SIZE;
-
-  try {
-    const jobs = await api.liveJobsWithEnv(page, PAGE_SIZE);
-    return jobs[localIdx]
-      ? { ...jobs[localIdx], id: String(idx) }
-      : null;
-  } catch (error) {
-    disableApiTemporarily(error);
-    return ALLOW_MOCK_FALLBACK ? (mockJobs[idx] ?? null) : null;
-  }
+  return ALLOW_MOCK_FALLBACK ? (findById(mockJobs, id) ?? null) : null;
 }
 
 export async function getCompanyById(id: string): Promise<Company | null> {
@@ -236,52 +210,38 @@ export async function getCompanyById(id: string): Promise<Company | null> {
 }
 
 export async function getLiveJobsTotal(): Promise<number> {
-  if (shouldUseApi()) {
-    try {
-      const comparison = await api.liveJobsComparison();
-      if (comparison.jobListEnvTotal > 0 || comparison.jobListTotal > 0) {
-        return comparison.jobListEnvTotal || comparison.jobListTotal;
-      }
-    } catch (error) {
-      disableApiTemporarily(error);
-    }
+  const comparison = await attempt(shouldUseApi(), () => api.liveJobsComparison());
+  if (comparison && (comparison.jobListEnvTotal > 0 || comparison.jobListTotal > 0)) {
+    return comparison.jobListEnvTotal || comparison.jobListTotal;
   }
 
   const keadJobs = await getMergedKeadJobs(1, 1);
   if (keadJobs.length > 0) {
-    const comparison = await getKeadJobComparison(1, 1);
-    return comparison.jobListEnvTotal || comparison.jobListTotal || keadJobs.length;
+    const keadComparison = await getKeadJobComparison(1, 1);
+    return keadComparison.jobListEnvTotal || keadComparison.jobListTotal || keadJobs.length;
   }
 
   if (!shouldUseApi()) return ALLOW_MOCK_FALLBACK ? mockJobs.length : 0;
-  try {
-    return await api.liveJobsTotal();
-  } catch (error) {
-    disableApiTemporarily(error);
-    try {
-      const fallbackJobs = await api.jobs();
-      return fallbackJobs.length;
-    } catch {
-      return ALLOW_MOCK_FALLBACK ? mockJobs.length : 0;
-    }
-  }
+
+  const total = await attempt(true, () => api.liveJobsTotal());
+  if (total !== undefined) return total;
+
+  const legacy = await attempt(true, () => api.jobs());
+  if (legacy) return legacy.length;
+
+  return ALLOW_MOCK_FALLBACK ? mockJobs.length : 0;
 }
 
 export async function getLiveJobsComparison() {
-  if (shouldUseApi()) {
-    try {
-      const comparison = await api.liveJobsComparison();
-      return {
-        jobListTotal: comparison.jobListTotal,
-        jobListEnvTotal: comparison.jobListEnvTotal,
-        jobListResultCode: "0000",
-        jobListEnvResultCode: "0000",
-      };
-    } catch (error) {
-      disableApiTemporarily(error);
-    }
+  const comparison = await attempt(shouldUseApi(), () => api.liveJobsComparison());
+  if (comparison) {
+    return {
+      jobListTotal: comparison.jobListTotal,
+      jobListEnvTotal: comparison.jobListEnvTotal,
+      jobListResultCode: "0000",
+      jobListEnvResultCode: "0000",
+    };
   }
-
   return getKeadJobComparison(1, 1);
 }
 
@@ -310,19 +270,8 @@ export async function getLiveJobsMergedMeta(): Promise<{
   meta: LiveJobsMergedMeta;
   isEstimated: boolean;
 }> {
-  if (shouldUseApi()) {
-    try {
-      const meta = await api.liveJobsMergedMeta(1, 200);
-      return { meta, isEstimated: false };
-    } catch (error) {
-      disableApiTemporarily(error);
-      const comparison = await getLiveJobsComparison();
-      return {
-        meta: estimateMergedMetaFromComparison(comparison),
-        isEstimated: true,
-      };
-    }
-  }
+  const meta = await attempt(shouldUseApi(), () => api.liveJobsMergedMeta(1, 200));
+  if (meta) return { meta, isEstimated: false };
 
   const comparison = await getLiveJobsComparison();
   return {

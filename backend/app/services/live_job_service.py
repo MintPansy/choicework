@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -15,6 +16,25 @@ _MERGED_CACHE: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
 _MERGED_TTL_SEC = 60.0
 _COMPARISON_CACHE: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
 _COMPARISON_TTL_SEC = 30.0
+
+
+def _merge_key(item: dict[str, str]) -> str:
+    """raw/env 공고를 동일 건으로 묶는 키. 응답 순서(index)에 의존하지 않는 값만 사용."""
+    return "|".join(
+        [
+            item.get("businessName", ""),
+            item.get("jobName", ""),
+            item.get("applicationDate", ""),
+            item.get("contactNumber", ""),
+            item.get("registeredAt", ""),
+            item.get("companyAddress", ""),
+        ]
+    )
+
+
+def _stable_id(item: dict[str, str]) -> str:
+    """공고 내용 기반 안정 식별자. 페이지 응답 순서가 바뀌어도 동일 공고는 동일 id를 가짐."""
+    return hashlib.sha1(_merge_key(item).encode("utf-8")).hexdigest()[:16]
 
 
 def _text(item: ElementTree.Element, tag: str) -> str:
@@ -103,24 +123,24 @@ def fetch_live_jobs(page_no: int = 1, num_of_rows: int = 20) -> dict[str, Any]:
     items = root.findall(".//item")
     data: list[dict[str, str]] = []
     for item in items:
-        data.append(
-            {
-                "recruitmentPeriod": _text(item, "termDate"),
-                "businessName": _text(item, "busplaName"),
-                "contactNumber": _text(item, "cntctNo"),
-                "companyAddress": _text(item, "compAddr"),
-                "employmentType": _text(item, "empType"),
-                "entryType": _text(item, "enterType"),
-                "jobName": _text(item, "jobNm"),
-                "applicationDate": _text(item, "offerregDt"),
-                "registeredAt": _text(item, "regDt"),
-                "agencyName": _text(item, "regagnName"),
-                "requiredCareer": _text(item, "reqCareer"),
-                "requiredEducation": _text(item, "reqEduc"),
-                "salaryType": _text(item, "salaryType"),
-                "salary": _text(item, "salary"),
-            }
-        )
+        entry = {
+            "recruitmentPeriod": _text(item, "termDate"),
+            "businessName": _text(item, "busplaName"),
+            "contactNumber": _text(item, "cntctNo"),
+            "companyAddress": _text(item, "compAddr"),
+            "employmentType": _text(item, "empType"),
+            "entryType": _text(item, "enterType"),
+            "jobName": _text(item, "jobNm"),
+            "applicationDate": _text(item, "offerregDt"),
+            "registeredAt": _text(item, "regDt"),
+            "agencyName": _text(item, "regagnName"),
+            "requiredCareer": _text(item, "reqCareer"),
+            "requiredEducation": _text(item, "reqEduc"),
+            "salaryType": _text(item, "salaryType"),
+            "salary": _text(item, "salary"),
+        }
+        entry["id"] = _stable_id(entry)
+        data.append(entry)
     return {
         "pageNo": _int_from_xml(root, ".//pageNo", page_no),
         "numOfRows": _int_from_xml(root, ".//numOfRows", num_of_rows),
@@ -134,30 +154,30 @@ def fetch_live_jobs_with_env(page_no: int = 1, num_of_rows: int = 20) -> dict[st
     items = root.findall(".//item")
     data: list[dict[str, str]] = []
     for item in items:
-        data.append(
-            {
-                "recruitmentPeriod": _text(item, "termDate"),
-                "businessName": _text(item, "busplaName"),
-                "contactNumber": _text(item, "cntctNo"),
-                "companyAddress": _text(item, "compAddr"),
-                "employmentType": _text(item, "empType"),
-                "entryType": _text(item, "enterType"),
-                "jobName": _text(item, "jobNm"),
-                "applicationDate": _text(item, "offerregDt"),
-                "registeredAt": _text(item, "regDt"),
-                "agencyName": _text(item, "regagnName"),
-                "requiredCareer": _text(item, "reqCareer"),
-                "requiredEducation": _text(item, "reqEduc"),
-                "salaryType": _text(item, "salaryType"),
-                "salary": _text(item, "salary"),
-                "envBothHands": _text(item, "envBothHands"),
-                "envEyesight": _text(item, "envEyesight"),
-                "envHandwork": _text(item, "envHandwork"),
-                "envLiftPower": _text(item, "envLiftPower"),
-                "envLstnTalk": _text(item, "envLstnTalk"),
-                "envStndWalk": _text(item, "envStndWalk"),
-            }
-        )
+        entry = {
+            "recruitmentPeriod": _text(item, "termDate"),
+            "businessName": _text(item, "busplaName"),
+            "contactNumber": _text(item, "cntctNo"),
+            "companyAddress": _text(item, "compAddr"),
+            "employmentType": _text(item, "empType"),
+            "entryType": _text(item, "enterType"),
+            "jobName": _text(item, "jobNm"),
+            "applicationDate": _text(item, "offerregDt"),
+            "registeredAt": _text(item, "regDt"),
+            "agencyName": _text(item, "regagnName"),
+            "requiredCareer": _text(item, "reqCareer"),
+            "requiredEducation": _text(item, "reqEduc"),
+            "salaryType": _text(item, "salaryType"),
+            "salary": _text(item, "salary"),
+            "envBothHands": _text(item, "envBothHands"),
+            "envEyesight": _text(item, "envEyesight"),
+            "envHandwork": _text(item, "envHandwork"),
+            "envLiftPower": _text(item, "envLiftPower"),
+            "envLstnTalk": _text(item, "envLstnTalk"),
+            "envStndWalk": _text(item, "envStndWalk"),
+        }
+        entry["id"] = _stable_id(entry)
+        data.append(entry)
     return {
         "pageNo": _int_from_xml(root, ".//pageNo", page_no),
         "numOfRows": _int_from_xml(root, ".//numOfRows", num_of_rows),
@@ -219,20 +239,8 @@ def _normalize_item(item: dict[str, Any], with_env: bool) -> dict[str, str]:
                 "envStndWalk": str(item.get("envStndWalk", "")).strip(),
             }
         )
+    base["id"] = _stable_id(base)
     return base
-
-
-def _merge_key(item: dict[str, str]) -> str:
-    return "|".join(
-        [
-            item.get("businessName", ""),
-            item.get("jobName", ""),
-            item.get("applicationDate", ""),
-            item.get("contactNumber", ""),
-            item.get("registeredAt", ""),
-            item.get("companyAddress", ""),
-        ]
-    )
 
 
 def fetch_live_jobs_merged(page_no: int = 1, num_of_rows: int = 20) -> dict[str, Any]:

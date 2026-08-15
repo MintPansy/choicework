@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { Job } from "@/types";
 
 type KeadHeader = {
@@ -96,9 +98,29 @@ function generateTags(item: JobListEnvItem): string[] {
   return tags;
 }
 
+/** 백엔드 live_job_service._stable_id와 동일한 알고리즘(같은 필드·같은 SHA-1 앞 16자). 백엔드를 거치지 않는 이 경로에서도 동일 공고가 동일 id를 갖도록 함 */
+export function stableJobId(item: {
+  busplaName?: string;
+  jobNm?: string;
+  offerregDt?: string;
+  cntctNo?: string;
+  regDt?: string;
+  compAddr?: string;
+}): string {
+  const key = [
+    item.busplaName ?? "",
+    item.jobNm ?? "",
+    item.offerregDt ?? "",
+    item.cntctNo ?? "",
+    item.regDt ?? "",
+    item.compAddr ?? "",
+  ].join("|");
+  return createHash("sha1").update(key).digest("hex").slice(0, 16);
+}
+
 function mapItemToJob(item: JobListEnvItem, index: number): Job {
   return {
-    id: String(index),
+    id: stableJobId(item) || String(index),
     title: item.jobNm || "직무명 없음",
     companyName: item.busplaName || "기업명 없음",
     location: extractRegion(item.compAddr),
