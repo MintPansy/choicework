@@ -62,12 +62,6 @@ export default function SiteHeaderClient({ isLoggedIn }: SiteHeaderClientProps) 
             <Link href="/guide" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition">
               이용 가이드
             </Link>
-            <Link
-              href="/community"
-              className="flex items-center gap-1 text-sm font-bold text-emerald-600 transition hover:text-emerald-700"
-            >
-              동네 커뮤니티 <span className="flex h-2 w-2 rounded-full bg-emerald-500"></span>
-            </Link>
           </nav>
         </div>
 

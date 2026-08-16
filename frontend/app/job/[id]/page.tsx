@@ -1,6 +1,7 @@
 import ScoreTooltip from "@/components/ScoreTooltip";
 import BookmarkButton from "@/components/BookmarkButton";
-import { getJobById } from "@/lib/data";
+import SourceBadge from "@/components/SourceBadge";
+import { getJobByIdWithMeta } from "@/lib/data";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -26,7 +27,7 @@ function formatDate(raw: string | number | undefined): string {
 
 export default async function JobDetailPage({ params }: Props) {
   const { id } = await params;
-  const job = await getJobById(id);
+  const { job, source } = await getJobByIdWithMeta(id);
   if (!job) return notFound();
 
   const envEntries = (
@@ -61,6 +62,9 @@ export default async function JobDetailPage({ params }: Props) {
               <h1 className="mt-3 text-2xl font-bold text-slate-900 md:text-3xl">{job.title}</h1>
               <p className="mt-2 text-lg font-medium text-slate-700">{job.companyName}</p>
               <p className="mt-1 text-sm text-slate-500">{job.location}</p>
+              <div className="mt-3">
+                <SourceBadge source={source} />
+              </div>
             </div>
             <BookmarkButton storageKey={`job-${job.id}`} label="찜하기" />
           </div>

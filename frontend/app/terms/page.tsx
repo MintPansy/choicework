@@ -46,7 +46,6 @@ export default function TermsPage() {
               <li>공공데이터 기반 맞춤 추천</li>
               <li>관심 공고 저장</li>
               <li>지역 생활 인프라 및 지원기관 정보 제공</li>
-              <li>커뮤니티 기능</li>
             </ol>
           </section>
 

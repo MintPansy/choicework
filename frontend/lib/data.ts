@@ -143,21 +143,33 @@ export async function getCompaniesWithMeta(): Promise<{
 
 /** 실데이터 소스 우선순위: 백엔드 live-merged → KEAD 직접 병합 → 백엔드 live-with-env → 백엔드 mock(/jobs) → 로컬 mock */
 export async function getJobs(numOfRows = 20): Promise<Job[]> {
+  const result = await getJobsWithMeta(numOfRows);
+  return result.jobs;
+}
+
+/** getJobs와 동일한 폴백 순서를 따르되, 어느 단계에서 데이터를 받았는지(source)를 함께 반환한다.
+ *  UI는 이 source로 "실시간" vs "추정" 배지를 노출한다. */
+export async function getJobsWithMeta(numOfRows = 20): Promise<{
+  source: "live" | "static";
+  jobs: Job[];
+}> {
   const merged = await attempt(shouldUseApi(), () => api.liveJobsMerged(1, numOfRows));
-  if (merged && merged.length > 0) return merged;
+  if (merged && merged.jobs.length > 0) return merged;
 
   const keadJobs = await getMergedKeadJobs(1, numOfRows);
-  if (keadJobs.length > 0) return keadJobs;
+  if (keadJobs.length > 0) return { source: "live", jobs: keadJobs };
 
-  if (!shouldUseApi()) return ALLOW_MOCK_FALLBACK ? mockJobs : [];
+  if (!shouldUseApi()) {
+    return { source: "static", jobs: ALLOW_MOCK_FALLBACK ? mockJobs : [] };
+  }
 
   const withEnv = await attempt(true, () => api.liveJobsWithEnv(1, numOfRows));
   if (withEnv) return withEnv;
 
   const legacy = await attempt(true, () => api.jobs());
-  if (legacy) return legacy.slice(0, numOfRows);
+  if (legacy) return { source: legacy.source, jobs: legacy.jobs.slice(0, numOfRows) };
 
-  return ALLOW_MOCK_FALLBACK ? mockJobs : [];
+  return { source: "static", jobs: ALLOW_MOCK_FALLBACK ? mockJobs : [] };
 }
 
 /**
@@ -168,25 +180,34 @@ export async function getJobs(numOfRows = 20): Promise<Job[]> {
 const DETAIL_LOOKUP_COUNT = 500;
 
 export async function getJobById(id: string): Promise<Job | null> {
-  if (!id) return null;
+  const result = await getJobByIdWithMeta(id);
+  return result.job;
+}
+
+/** getJobById와 동일한 폴백 순서를 따르되, 조회에 성공한 소스(source)를 함께 반환한다. */
+export async function getJobByIdWithMeta(id: string): Promise<{
+  job: Job | null;
+  source: "live" | "static";
+}> {
+  if (!id) return { job: null, source: "static" };
 
   const merged = await attempt(shouldUseApi(), () => api.liveJobsMerged(1, DETAIL_LOOKUP_COUNT));
-  const mergedHit = findById(merged, id);
-  if (mergedHit) return mergedHit;
+  const mergedHit = findById(merged?.jobs, id);
+  if (mergedHit) return { job: mergedHit, source: merged!.source };
 
   const keadJobs = await getMergedKeadJobs(1, DETAIL_LOOKUP_COUNT);
   const keadHit = findById(keadJobs, id);
-  if (keadHit) return keadHit;
+  if (keadHit) return { job: keadHit, source: "live" };
 
   if (!shouldUseApi()) {
-    return ALLOW_MOCK_FALLBACK ? (findById(mockJobs, id) ?? null) : null;
+    return { job: ALLOW_MOCK_FALLBACK ? (findById(mockJobs, id) ?? null) : null, source: "static" };
   }
 
   const withEnv = await attempt(true, () => api.liveJobsWithEnv(1, DETAIL_LOOKUP_COUNT));
-  const envHit = findById(withEnv, id);
-  if (envHit) return envHit;
+  const envHit = findById(withEnv?.jobs, id);
+  if (envHit) return { job: envHit, source: withEnv!.source };
 
-  return ALLOW_MOCK_FALLBACK ? (findById(mockJobs, id) ?? null) : null;
+  return { job: ALLOW_MOCK_FALLBACK ? (findById(mockJobs, id) ?? null) : null, source: "static" };
 }
 
 export async function getCompanyById(id: string): Promise<Company | null> {
@@ -210,26 +231,41 @@ export async function getCompanyById(id: string): Promise<Company | null> {
 }
 
 export async function getLiveJobsTotal(): Promise<number> {
+  const result = await getLiveJobsTotalWithMeta();
+  return result.total;
+}
+
+/** getLiveJobsTotal과 동일한 폴백 순서를 따르되, 집계에 사용한 소스(source)를 함께 반환한다.
+ *  홈 화면의 "실시간 연동 공고 N건" 문구가 실제로 실시간인지, 추정치인지를 이 값으로 구분한다. */
+export async function getLiveJobsTotalWithMeta(): Promise<{
+  total: number;
+  source: "live" | "static";
+}> {
   const comparison = await attempt(shouldUseApi(), () => api.liveJobsComparison());
   if (comparison && (comparison.jobListEnvTotal > 0 || comparison.jobListTotal > 0)) {
-    return comparison.jobListEnvTotal || comparison.jobListTotal;
+    return { total: comparison.jobListEnvTotal || comparison.jobListTotal, source: "live" };
   }
 
   const keadJobs = await getMergedKeadJobs(1, 1);
   if (keadJobs.length > 0) {
     const keadComparison = await getKeadJobComparison(1, 1);
-    return keadComparison.jobListEnvTotal || keadComparison.jobListTotal || keadJobs.length;
+    return {
+      total: keadComparison.jobListEnvTotal || keadComparison.jobListTotal || keadJobs.length,
+      source: "live",
+    };
   }
 
-  if (!shouldUseApi()) return ALLOW_MOCK_FALLBACK ? mockJobs.length : 0;
+  if (!shouldUseApi()) {
+    return { total: ALLOW_MOCK_FALLBACK ? mockJobs.length : 0, source: "static" };
+  }
 
   const total = await attempt(true, () => api.liveJobsTotal());
-  if (total !== undefined) return total;
+  if (total !== undefined) return { total: total.total, source: total.source };
 
   const legacy = await attempt(true, () => api.jobs());
-  if (legacy) return legacy.length;
+  if (legacy) return { total: legacy.jobs.length, source: legacy.source };
 
-  return ALLOW_MOCK_FALLBACK ? mockJobs.length : 0;
+  return { total: ALLOW_MOCK_FALLBACK ? mockJobs.length : 0, source: "static" };
 }
 
 export async function getLiveJobsComparison() {

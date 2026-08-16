@@ -4,6 +4,7 @@ import { JOB_DOMAINS } from "@/lib/job-domains";
 
 type LandingHeroProps = {
   liveJobsTotal: number | null;
+  source?: "live" | "static";
 };
 
 const HOME_CATEGORIES = [
@@ -17,7 +18,7 @@ const HOME_CATEGORIES = [
   { icon: "☎️", label: "공단 상담/신청 연결", href: "/support/consulting" },
 ] as const;
 
-export function LandingHero({ liveJobsTotal }: LandingHeroProps) {
+export function LandingHero({ liveJobsTotal, source = "live" }: LandingHeroProps) {
   return (
     <section className="relative pb-14 pt-4 md:pb-16 md:pt-8">
       <div className="mx-auto max-w-5xl">
@@ -32,9 +33,17 @@ export function LandingHero({ liveJobsTotal }: LandingHeroProps) {
             있습니다. 추천 화면에서 장애 유형별 상세 조건까지 이어집니다.
           </p>
           {liveJobsTotal != null ? (
-            <p className="mt-3 text-sm font-medium tabular-nums text-primary-700">
-              실시간 연동 공고{" "}
-              <span className="font-bold text-primary-900">{liveJobsTotal.toLocaleString()}건</span>
+            <p
+              className={`mt-3 text-sm font-medium tabular-nums ${
+                source === "live" ? "text-primary-700" : "text-amber-700"
+              }`}
+            >
+              {source === "live" ? "실시간 연동 공고" : "추정 공고 수(공공 API 응답 지연/오류)"}{" "}
+              <span
+                className={`font-bold ${source === "live" ? "text-primary-900" : "text-amber-900"}`}
+              >
+                {liveJobsTotal.toLocaleString()}건
+              </span>
             </p>
           ) : null}
         </div>

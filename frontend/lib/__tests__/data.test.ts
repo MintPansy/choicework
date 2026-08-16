@@ -65,7 +65,10 @@ afterEach(() => {
 
 describe("getJobs 폴백 순서 (live-merged → KEAD 직접 병합 → live-with-env → /jobs → mock)", () => {
   it("백엔드 live-merged가 성공하면 그 결과를 그대로 쓰고 다른 소스는 호출하지 않는다", async () => {
-    mockApi.liveJobsMerged.mockResolvedValue([makeJob("a"), makeJob("b")]);
+    mockApi.liveJobsMerged.mockResolvedValue({
+      jobs: [makeJob("a"), makeJob("b")],
+      source: "live",
+    });
     const { getJobs } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
 
     const result = await getJobs(20);
@@ -87,8 +90,8 @@ describe("getJobs 폴백 순서 (live-merged → KEAD 직접 병합 → live-wit
   });
 
   it("live-merged/KEAD 모두 비어 있으면 live-with-env로 넘어간다", async () => {
-    mockApi.liveJobsMerged.mockResolvedValue([]);
-    mockApi.liveJobsWithEnv.mockResolvedValue([makeJob("env-1")]);
+    mockApi.liveJobsMerged.mockResolvedValue({ jobs: [], source: "live" });
+    mockApi.liveJobsWithEnv.mockResolvedValue({ jobs: [makeJob("env-1")], source: "live" });
     const { getJobs } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
 
     const result = await getJobs(20);
@@ -136,9 +139,59 @@ describe("getJobs 폴백 순서 (live-merged → KEAD 직접 병합 → live-wit
   });
 });
 
+describe("getJobsWithMeta — 실시간/추정 source 태깅", () => {
+  it("백엔드 live-merged 성공 시 source는 백엔드가 내려준 값을 그대로 쓴다", async () => {
+    mockApi.liveJobsMerged.mockResolvedValue({ jobs: [makeJob("a")], source: "live" });
+    const { getJobsWithMeta } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
+
+    const result = await getJobsWithMeta(20);
+
+    expect(result.source).toBe("live");
+  });
+
+  it("KEAD 직접 병합으로 폴백하면 source는 live로 태깅한다 (실시간 공공데이터이므로)", async () => {
+    mockApi.liveJobsMerged.mockRejectedValue(new Error("down"));
+    mockGetMergedKeadJobs.mockResolvedValue([makeJob("kead-1")]);
+    const { getJobsWithMeta } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
+
+    const result = await getJobsWithMeta(20);
+
+    expect(result.source).toBe("live");
+  });
+
+  it("모든 실데이터 소스가 실패해 mock으로 폴백하면 source는 static이다", async () => {
+    mockApi.liveJobsMerged.mockRejectedValue(new Error("down"));
+    mockApi.liveJobsWithEnv.mockRejectedValue(new Error("down"));
+    mockApi.jobs.mockRejectedValue(new Error("down"));
+    const { getJobsWithMeta } = await loadData({
+      NEXT_PUBLIC_API_URL: "http://localhost:8000",
+      NODE_ENV: "development",
+    });
+
+    const result = await getJobsWithMeta(20);
+
+    expect(result.source).toBe("static");
+  });
+
+  it("백엔드 legacy(/jobs) 정적 목록까지 내려가면 백엔드가 내려준 source(static)를 쓴다", async () => {
+    mockApi.liveJobsMerged.mockResolvedValue({ jobs: [], source: "live" });
+    mockApi.liveJobsWithEnv.mockRejectedValue(new Error("down"));
+    mockApi.jobs.mockResolvedValue({ jobs: [makeJob("legacy-1")], source: "static" });
+    const { getJobsWithMeta } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
+
+    const result = await getJobsWithMeta(20);
+
+    expect(result.source).toBe("static");
+    expect(result.jobs.map((j) => j.id)).toEqual(["legacy-1"]);
+  });
+});
+
 describe("getJobById (id는 배열 인덱스가 아니라 안정 식별자 기준으로 조회)", () => {
   it("live-merged 배치에서 id가 일치하는 공고를 찾아 반환한다", async () => {
-    mockApi.liveJobsMerged.mockResolvedValue([makeJob("x1"), makeJob("target"), makeJob("x3")]);
+    mockApi.liveJobsMerged.mockResolvedValue({
+      jobs: [makeJob("x1"), makeJob("target"), makeJob("x3")],
+      source: "live",
+    });
     const { getJobById } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
 
     const result = await getJobById("target");
@@ -147,7 +200,7 @@ describe("getJobById (id는 배열 인덱스가 아니라 안정 식별자 기�
   });
 
   it("live-merged에 없으면 KEAD 배치에서 찾는다", async () => {
-    mockApi.liveJobsMerged.mockResolvedValue([makeJob("other")]);
+    mockApi.liveJobsMerged.mockResolvedValue({ jobs: [makeJob("other")], source: "live" });
     mockGetMergedKeadJobs.mockResolvedValue([makeJob("kead-target")]);
     const { getJobById } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
 
@@ -157,8 +210,8 @@ describe("getJobById (id는 배열 인덱스가 아니라 안정 식별자 기�
   });
 
   it("어디에서도 못 찾으면 null을 반환한다(존재하지 않는 id로 엉뚱한 공고를 반환하지 않는다)", async () => {
-    mockApi.liveJobsMerged.mockResolvedValue([makeJob("a")]);
-    mockApi.liveJobsWithEnv.mockResolvedValue([makeJob("b")]);
+    mockApi.liveJobsMerged.mockResolvedValue({ jobs: [makeJob("a")], source: "live" });
+    mockApi.liveJobsWithEnv.mockResolvedValue({ jobs: [makeJob("b")], source: "live" });
     const { getJobById } = await loadData({
       NEXT_PUBLIC_API_URL: "http://localhost:8000",
       NODE_ENV: "production",
@@ -177,6 +230,41 @@ describe("getJobById (id는 배열 인덱스가 아니라 안정 식별자 기�
 
     expect(result).toBeNull();
     expect(mockApi.liveJobsMerged).not.toHaveBeenCalled();
+  });
+});
+
+describe("getJobByIdWithMeta — 실시간/추정 source 태깅", () => {
+  it("live-merged 배치에서 찾으면 백엔드가 내려준 source를 그대로 쓴다", async () => {
+    mockApi.liveJobsMerged.mockResolvedValue({ jobs: [makeJob("target")], source: "live" });
+    const { getJobByIdWithMeta } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
+
+    const result = await getJobByIdWithMeta("target");
+
+    expect(result.job?.id).toBe("target");
+    expect(result.source).toBe("live");
+  });
+
+  it("KEAD 직접 조회로 찾으면 source는 live다", async () => {
+    mockApi.liveJobsMerged.mockResolvedValue({ jobs: [], source: "live" });
+    mockGetMergedKeadJobs.mockResolvedValue([makeJob("kead-target")]);
+    const { getJobByIdWithMeta } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
+
+    const result = await getJobByIdWithMeta("kead-target");
+
+    expect(result.source).toBe("live");
+  });
+
+  it("mock 폴백까지 내려가면 source는 static이다", async () => {
+    mockApi.liveJobsMerged.mockRejectedValue(new Error("down"));
+    mockApi.liveJobsWithEnv.mockRejectedValue(new Error("down"));
+    const { getJobByIdWithMeta } = await loadData({
+      NEXT_PUBLIC_API_URL: "http://localhost:8000",
+      NODE_ENV: "development",
+    });
+
+    const result = await getJobByIdWithMeta("job-1");
+
+    expect(result.source).toBe("static");
   });
 });
 
@@ -355,5 +443,35 @@ describe("getLiveJobsComparison / getLiveJobsTotal", () => {
     });
 
     expect(await getLiveJobsTotal()).toBe(0);
+  });
+});
+
+describe("getLiveJobsTotalWithMeta — 실시간/추정 source 태깅", () => {
+  it("백엔드 비교 수치가 있으면 source는 live다", async () => {
+    mockApi.liveJobsComparison.mockResolvedValue({
+      jobListTotal: 50,
+      jobListEnvTotal: 40,
+      missingEnvCount: 10,
+      missingEnvRate: 20,
+    });
+    const { getLiveJobsTotalWithMeta } = await loadData({ NEXT_PUBLIC_API_URL: "http://localhost:8000" });
+
+    const result = await getLiveJobsTotalWithMeta();
+
+    expect(result).toEqual({ total: 40, source: "live" });
+  });
+
+  it("모든 실데이터 소스가 실패해 mock 개수로 폴백하면 source는 static이다", async () => {
+    mockApi.liveJobsComparison.mockRejectedValue(new Error("down"));
+    mockApi.liveJobsTotal.mockRejectedValue(new Error("down"));
+    mockApi.jobs.mockRejectedValue(new Error("down"));
+    const { getLiveJobsTotalWithMeta } = await loadData({
+      NEXT_PUBLIC_API_URL: "http://localhost:8000",
+      NODE_ENV: "development",
+    });
+
+    const result = await getLiveJobsTotalWithMeta();
+
+    expect(result.source).toBe("static");
   });
 });

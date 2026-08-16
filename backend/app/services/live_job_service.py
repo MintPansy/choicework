@@ -10,6 +10,7 @@ import requests
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.services.company_rating_service import compute_job_env_friendliness
 
 # 짧은 TTL로 동일 파라미터 반복 호출(목록·인사이트 등) 시 외부 API 부하 감소
 _MERGED_CACHE: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
@@ -146,6 +147,7 @@ def fetch_live_jobs(page_no: int = 1, num_of_rows: int = 20) -> dict[str, Any]:
         "numOfRows": _int_from_xml(root, ".//numOfRows", num_of_rows),
         "totalCount": _int_from_xml(root, ".//totalCount", len(data)),
         "data": data,
+        "source": "live",
     }
 
 
@@ -177,12 +179,14 @@ def fetch_live_jobs_with_env(page_no: int = 1, num_of_rows: int = 20) -> dict[st
             "envStndWalk": _text(item, "envStndWalk"),
         }
         entry["id"] = _stable_id(entry)
+        entry["friendlinessScore"] = compute_job_env_friendliness(entry)
         data.append(entry)
     return {
         "pageNo": _int_from_xml(root, ".//pageNo", page_no),
         "numOfRows": _int_from_xml(root, ".//numOfRows", num_of_rows),
         "totalCount": _int_from_xml(root, ".//totalCount", len(data)),
         "data": data,
+        "source": "live",
     }
 
 
@@ -239,6 +243,7 @@ def _normalize_item(item: dict[str, Any], with_env: bool) -> dict[str, str]:
                 "envStndWalk": str(item.get("envStndWalk", "")).strip(),
             }
         )
+        base["friendlinessScore"] = compute_job_env_friendliness(base)
     base["id"] = _stable_id(base)
     return base
 
@@ -298,6 +303,7 @@ def fetch_live_jobs_merged(page_no: int = 1, num_of_rows: int = 20) -> dict[str,
         "numOfRows": target_count,
         "totalCount": env_total or raw_total or len(merged),
         "data": merged,
+        "source": "live",
         "meta": {
             "requestedCount": target_count,
             "collectedPages": collected_pages,

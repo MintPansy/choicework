@@ -44,10 +44,14 @@ def test_normalize_company_name_key_strips_corp_markers():
     assert normalize_company_name_key("주식회사 현대") == normalize_company_name_key("현대")
 
 
-def test_jobs_returns_list():
+def test_jobs_returns_static_payload():
     res = client.get("/jobs")
     assert res.status_code == 200
-    data = res.json()
+    payload = res.json()
+    assert isinstance(payload, dict)
+    assert payload.get("source") == "static"
+    assert "syncedAt" in payload
+    data = payload["data"]
     assert isinstance(data, list)
     assert len(data) > 0
     assert "title" in data[0]
@@ -124,6 +128,64 @@ def test_normalize_item_id_is_stable_across_raw_and_env_variants():
     # 응답 순서가 바뀌어 index가 달라져도(=index를 아예 안 쓰므로) id는 내용에만 의존한다
     reordered_env_item = _normalize_item(dict(env_source), with_env=True)
     assert reordered_env_item["id"] == env_item["id"]
+
+
+def test_fetch_live_jobs_with_env_attaches_source_and_friendliness_score(monkeypatch):
+    """DATA_GO_API_KEY 없이도, 외부 XML 응답 파싱 이후 단계(source 태깅·친화도 점수 계산)를
+    실제 fetch_live_jobs_with_env 경로로 검증한다 (job_list_env 외부 호출 자체만 모킹)."""
+    from xml.etree import ElementTree
+
+    from app.services import live_job_service
+
+    sample_xml = """
+    <response>
+      <body>
+        <items>
+          <item>
+            <busplaName>테스트기업</busplaName>
+            <jobNm>테스트직무</jobNm>
+            <envStndWalk>서거나 걷는 일 어려움</envStndWalk>
+          </item>
+        </items>
+        <pageNo>1</pageNo>
+        <numOfRows>20</numOfRows>
+        <totalCount>1</totalCount>
+      </body>
+    </response>
+    """
+    monkeypatch.setattr(
+        live_job_service,
+        "_request_job_api",
+        lambda path, page_no, num_of_rows: ElementTree.fromstring(sample_xml),
+    )
+
+    result = live_job_service.fetch_live_jobs_with_env(page_no=1, num_of_rows=20)
+
+    assert result["source"] == "live"
+    assert len(result["data"]) == 1
+    assert result["data"][0]["friendlinessScore"] == 75  # 60(base) + 15(envStndWalk)
+    assert result["data"][0]["id"]
+
+
+def test_normalize_item_computes_friendliness_score_only_with_env():
+    """friendlinessScore는 근무환경(env) 필드가 있는 병합 결과에만 붙는다 (company_rating_service 단일 소스)."""
+    from app.services.live_job_service import _normalize_item
+
+    source = {
+        "busplaName": "테스트기업",
+        "jobNm": "테스트직무",
+        "offerregDt": "20260101",
+        "cntctNo": "02-0000-0000",
+        "regDt": "20251230",
+        "compAddr": "서울 강남구",
+        "envStndWalk": "서거나 걷는 일 어려움",
+    }
+
+    raw_item = _normalize_item(source, with_env=False)
+    env_item = _normalize_item(source, with_env=True)
+
+    assert "friendlinessScore" not in raw_item
+    assert env_item["friendlinessScore"] == 75  # 60(base) + 15(envStndWalk)
 
 
 def test_gg_json_parser_legacy_list_root():

@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter
 
-from app.schemas.job import Job
+from app.schemas.job import Job, JobListResponse
 from app.schemas.live_job import LiveJobMergedResponse, LiveJobResponse, LiveJobWithEnvResponse
 from app.services.data_service import get_jobs_data
 from app.services.live_job_service import (
@@ -13,9 +15,14 @@ from app.services.live_job_service import (
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-@router.get("", response_model=list[Job])
-def list_jobs() -> list[Job]:
-    return [Job(**job) for job in get_jobs_data()]
+@router.get("", response_model=JobListResponse)
+def list_jobs() -> JobListResponse:
+    # 로컬 시드 데이터(jobs.json)만 반환하는 정적 폴백 경로 — 항상 source="static"
+    return JobListResponse(
+        source="static",
+        syncedAt=datetime.now(timezone.utc).isoformat(),
+        data=[Job(**job) for job in get_jobs_data()],
+    )
 
 
 @router.get("/live", response_model=LiveJobResponse)

@@ -46,13 +46,27 @@ interface LiveJobItem {
   envLiftPower?: string;
   envLstnTalk?: string;
   envStndWalk?: string;
+  /** 근무환경 6축 기반 친화도 점수. 백엔드(company_rating_service)가 단일 소스로 계산해 내려준다 */
+  friendlinessScore?: number;
 }
+
+export type JobSource = "live" | "static";
 
 interface LiveJobsResponse {
   pageNo: number;
   numOfRows: number;
   totalCount: number;
   data: LiveJobItem[];
+  source?: string;
+}
+
+export interface JobsWithSource {
+  jobs: Job[];
+  source: JobSource;
+}
+
+function toJobSource(raw: string | undefined): JobSource {
+  return raw === "live" ? "live" : "static";
 }
 
 export interface LiveJobsMergedMeta {
@@ -93,27 +107,6 @@ function extractRegion(address: string): string {
   return match ? match[0] : address.split(" ").slice(0, 2).join(" ");
 }
 
-function computeAccessibilityScore(item: LiveJobItem): number {
-  let score = 60;
-
-  if (item.envStndWalk === "서거나 걷는 일 어려움") score += 15;
-  else if (item.envStndWalk === "일부 서서하는 작업 가능") score += 8;
-
-  if (item.envLiftPower?.includes("5Kg 이내")) score += 8;
-  else if (item.envLiftPower?.includes("5~20Kg")) score += 4;
-
-  if (item.envEyesight === "일상적 활동 가능") score += 8;
-  else if (item.envEyesight?.includes("비교적 큰")) score += 4;
-
-  if (item.envLstnTalk === "듣고 말하는 작업 어려움") score += 8;
-  else if (item.envLstnTalk === "간단한 듣고 말하기 가능") score += 5;
-
-  if (item.envBothHands === "한손작업 가능") score += 5;
-  if (item.entryType === "신입" || item.entryType === "무관") score += 3;
-
-  return Math.min(100, score);
-}
-
 function generateTags(item: LiveJobItem): string[] {
   const tags: string[] = [];
   if (item.entryType === "신입" || item.entryType === "무관") tags.push("신입 환영");
@@ -128,7 +121,8 @@ function mapLiveJobToJob(item: LiveJobItem, index: number): Job {
   return {
     // 백엔드가 id를 못 보내는(구버전) 경우에 한해서만 index로 대체
     id: item.id || String(index),
-    friendlinessScore: computeAccessibilityScore(item),
+    // 백엔드(company_rating_service) 응답값을 그대로 사용 — 프론트에서 재계산하지 않는다
+    friendlinessScore: item.friendlinessScore,
     title: item.jobName || "직무명 없음",
     companyName: item.businessName || "기업명 없음",
     location: extractRegion(item.companyAddress),
@@ -171,22 +165,25 @@ export const api = {
         }
     >("/companies"),
   ratingMethodology: () => get<CompanyRatingMethodology>("/companies/rating-methodology"),
-  jobs: () => get<Job[]>("/jobs"),
-  liveJobsWithEnv: async (pageNo = 1, numOfRows = 20): Promise<Job[]> => {
+  jobs: async (): Promise<JobsWithSource> => {
+    const res = await get<{ source?: string; syncedAt?: string; data: Job[] }>("/jobs");
+    return { jobs: res.data, source: toJobSource(res.source) };
+  },
+  liveJobsWithEnv: async (pageNo = 1, numOfRows = 20): Promise<JobsWithSource> => {
     const res = await get<LiveJobsResponse>(
       `/jobs/live-with-env?pageNo=${pageNo}&numOfRows=${numOfRows}`
     );
-    return res.data.map(mapLiveJobToJob);
+    return { jobs: res.data.map(mapLiveJobToJob), source: toJobSource(res.source) };
   },
-  liveJobsTotal: async (): Promise<number> => {
+  liveJobsTotal: async (): Promise<{ total: number; source: JobSource }> => {
     const res = await get<LiveJobsResponse>("/jobs/live-with-env?pageNo=1&numOfRows=1");
-    return res.totalCount;
+    return { total: res.totalCount, source: toJobSource(res.source) };
   },
-  liveJobsMerged: async (pageNo = 1, numOfRows = 20): Promise<Job[]> => {
+  liveJobsMerged: async (pageNo = 1, numOfRows = 20): Promise<JobsWithSource> => {
     const res = await get<LiveJobsMergedResponse>(
       `/jobs/live-merged?pageNo=${pageNo}&numOfRows=${numOfRows}`
     );
-    return res.data.map(mapLiveJobToJob);
+    return { jobs: res.data.map(mapLiveJobToJob), source: toJobSource(res.source) };
   },
   liveJobsMergedMeta: async (pageNo = 1, numOfRows = 20) => {
     const res = await get<LiveJobsMergedResponse>(

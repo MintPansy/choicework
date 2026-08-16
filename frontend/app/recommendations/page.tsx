@@ -1,6 +1,7 @@
 import JobCard from "@/components/JobCard";
+import SourceBadge from "@/components/SourceBadge";
 import { DISABILITY_FILTER, computeDisabilityMatchPercent } from "@/lib/disability-match";
-import { getJobs } from "@/lib/data";
+import { getJobsWithMeta } from "@/lib/data";
 import { Job } from "@/types";
 
 interface RecommendationsPageProps {
@@ -55,7 +56,7 @@ export default async function RecommendationsPage({ searchParams }: Recommendati
   const disabilityType = params.disabilityType?.trim() ?? "";
   const keyword = params.keyword?.trim() ?? "";
 
-  const jobs = await getJobs(60);
+  const { jobs, source } = await getJobsWithMeta(60);
   const filteredJobs = jobs.filter((job) =>
     matchesFilter(job, region, employmentType, disabilityType, keyword)
   );
@@ -179,11 +180,18 @@ export default async function RecommendationsPage({ searchParams }: Recommendati
         </section>
 
         <section className="mt-8 space-y-4">
-          <p className="text-sm text-slate-600">
-            검색 결과{" "}
-            <span className="font-semibold text-slate-900">{filteredJobs.length}</span>건
-            {hasFilter && <span className="ml-1 text-slate-400">(전체 {jobs.length}건 중)</span>}
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-slate-600">
+              검색 결과{" "}
+              <span className="font-semibold text-slate-900">{filteredJobs.length}</span>건
+              {hasFilter && <span className="ml-1 text-slate-400">(전체 {jobs.length}건 중)</span>}
+            </p>
+            <SourceBadge
+              source={source}
+              liveLabel="실시간 공공데이터"
+              staticLabel="추정 데이터 (공공 API 응답 지연/오류로 대체 표시 중)"
+            />
+          </div>
 
           {filteredJobs.length > 0 ? (
             <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">

@@ -7,3 +7,9 @@ class Job(BaseModel):
     location: str
     employmentType: str
     accessibilityTags: list[str]
+
+
+class JobListResponse(BaseModel):
+    source: str
+    syncedAt: str
+    data: list[Job]

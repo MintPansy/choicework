@@ -168,9 +168,9 @@ API가 실패했을 때 빈 화면보다는 뭔가(mock이라도)를 보여주�
 4. `lib/data.ts` 폴백 로직을 전략 배열 구조로 리팩터링 (1의 테스트로 회귀 검증) — **완료** (2026-08-15)
 
 ### Phase 2 — 신뢰도 계층 (P1 일부)
-5. `frontend/lib/api.ts`의 `computeAccessibilityScore` 제거, job 카드가 백엔드 응답값을 직접 사용하도록 변경
-6. `/jobs` 계열 응답에 `source` 메타 추가(백엔드) → 프론트 UI에 실시간/추정 배지 노출(홈, 추천, 상세 페이지)
-7. 커뮤니티 기능 존폐 결정 회의/판단 → (유지 결정 시) 최소 백엔드 저장소(게시글/댓글 테이블 또는 기존 백엔드에 붙일 수 있는 최소 API) 설계 착수
+5. `frontend/lib/api.ts`의 `computeAccessibilityScore` 제거, job 카드가 백엔드 응답값을 직접 사용하도록 변경 — **완료** (2026-08-16)
+6. `/jobs` 계열 응답에 `source` 메타 추가(백엔드) → 프론트 UI에 실시간/추정 배지 노출(홈, 추천, 상세 페이지) — **완료** (2026-08-16)
+7. 커뮤니티 기능 존폐 결정 회의/판단 → (유지 결정 시) 최소 백엔드 저장소(게시글/댓글 테이블 또는 기존 백엔드에 붙일 수 있는 최소 API) 설계 착수 — **완료** (2026-08-16, 완전 제거로 결정 — 09장 참고)
 
 ### Phase 3 — 접근성 & UX 일관성 (P1 나머지 + P2)
 8. 모달 focus trap 유틸 추가 → 로그인 모달 등에 적용
@@ -245,4 +245,40 @@ API가 실패했을 때 빈 화면보다는 뭔가(mock이라도)를 보여주�
 
 ---
 
-이 문서(`thesis_dev.md`)와 감사 보고서(`v2-audit-report.md`)를 기준으로 Phase 1 핵심 작업을 진행했으며, 남은 항목(`.env` 복구, `next lint` 정비)과 Phase 2(점수 계산 단일화, source 노출) 착수 여부는 다음 단계에서 논의합니다.
+### 2026-08-16 — Phase 2 착수: 점수 계산 단일화, source 노출, 커뮤니티 제거
+
+#### 한 줄 요약
+근무환경 친화도 점수 계산을 백엔드 `company_rating_service.compute_job_env_friendliness` 단일 소스로 통합하고, `/jobs` 계열 응답 전체에 `source` 메타를 표준화해 홈·추천·상세 페이지에 실시간/추정 배지를 노출했다. 커뮤니티 기능은 존폐를 사용자에게 확인한 뒤 완전 제거로 정리했다.
+
+#### 5) 점수 계산 단일 진실 공급원화
+**변경 파일**: `backend/app/schemas/live_job.py`, `backend/app/services/live_job_service.py`, `frontend/lib/api.ts`
+
+- `LiveJobWithEnv` 스키마에 `friendlinessScore` 필드 추가. `fetch_live_jobs_with_env`·`_normalize_item`(merged 경로)에서 env 필드가 채워진 시점에 `compute_job_env_friendliness()`를 호출해 응답에 포함시킴 — 근무환경 데이터가 없는 raw(`/jobs/live`) 경로에는 붙이지 않는다(추정할 근거가 없는 값을 억지로 채우지 않음).
+- 프론트 `frontend/lib/api.ts`의 `computeAccessibilityScore`(사람이 옮겨 적은 복제 로직) 완전 삭제. `mapLiveJobToJob`은 이제 `item.friendlinessScore`(백엔드 응답)를 그대로 사용.
+- **남은 간극**: `frontend/lib/kead-jobs.ts`(백엔드를 거치지 않는 KEAD 직접 호출 경로)는 원래도 friendlinessScore를 계산하지 않았고, 오늘도 손대지 않았다 — 이 경로로 조회된 공고는 카드에 접근성 점수 배지가 뜨지 않는다(회귀 아님, 기존 상태 유지). 이 경로 자체가 "단일 소스" 원칙에 어긋나는 세 번째 병렬 구현이라는 점은 Phase 1에서 이미 기록됨 — 정리 여부는 별도 판단 필요.
+
+#### 6) `/jobs` 계열 source 메타 표준화 + 실시간/추정 배지
+**변경 파일**: `backend/app/schemas/job.py`, `backend/app/routers/jobs.py`, `backend/app/services/live_job_service.py`, `frontend/lib/api.ts`, `frontend/lib/data.ts`, `frontend/components/SourceBadge.tsx`(신규), `frontend/app/page.tsx`, `frontend/app/recommendations/page.tsx`, `frontend/app/job/[id]/page.tsx`, `frontend/components/home/landing-sections.tsx`
+
+- 백엔드: `/jobs/live`, `/jobs/live-with-env`, `/jobs/live-merged` 응답에 `source: "live"` 필드 추가(이 엔드포인트들은 실패 시 예외를 던지고 내부 폴백이 없으므로 응답이 오면 항상 live). 정적 시드 데이터를 내려주는 `/jobs`는 `companies`와 동일한 `{source, syncedAt, data}` 래퍼(`JobListResponse`)로 감싸 `source: "static"`을 명시.
+- 프론트: `lib/api.ts`의 `jobs`/`liveJobsWithEnv`/`liveJobsMerged`/`liveJobsTotal`이 배열 대신 `{jobs, source}` 형태를 반환하도록 변경. `lib/data.ts`에 `getJobsWithMeta`/`getJobByIdWithMeta`/`getLiveJobsTotalWithMeta`를 추가해 폴백 캐스케이드(live-merged → KEAD 직접 병합 → live-with-env → 백엔드 static → 로컬 mock)의 각 단계에 source를 태깅 — 기존 `getJobs`/`getJobById`/`getLiveJobsTotal`은 하위 호환을 위해 유지(내부적으로 `*WithMeta`를 감쌈).
+- 신규 `SourceBadge` 컴포넌트로 홈("실시간 연동 공고" ↔ "추정 공고 수"), 추천 목록, 공고 상세 페이지에 배지 노출.
+
+#### 7) 커뮤니티 기능 존폐 결정
+- 감사 보고서가 지적한 "실제로 작동하는 기능처럼 보이지만 localStorage 목업"이라는 포트폴리오 신뢰도 위험을 사용자에게 그대로 제시하고 판단을 요청 → **완전 제거**로 결정.
+- `frontend/app/community/`(라우트·`CommunityClient.tsx` 433줄) 삭제, `SiteHeaderClient.tsx`의 "동네 커뮤니티" 내비게이션 링크 제거, `terms/page.tsx`의 "커뮤니티 기능" 서비스 항목 삭제.
+- 감사 보고서(`v2-audit-report.md`)는 과거 시점 기록이므로 수정하지 않음 — 이 진행 로그가 최신 결정을 반영.
+
+#### 검증
+- 백엔드: `pytest tests/test_api.py` 13/13 통과(신규: `/jobs` static 래퍼 검증, `_normalize_item`/`fetch_live_jobs_with_env` friendlinessScore 계산 검증 2건 추가)
+- 프론트: `vitest run` 34/34 통과(신규: `getJobsWithMeta`/`getJobByIdWithMeta`/`getLiveJobsTotalWithMeta` source 태깅 검증 9건 추가), `tsc --noEmit` 클린, `next build` 성공(22개 라우트, `/community` 제거 반영)
+- 수동 확인: 로컬 백엔드(`DATA_GO_API_KEY` 미설정) + 프론트를 함께 띄워 `/`, `/recommendations`, `/job/[id]`에서 배지가 렌더링되는 것을 확인. 백엔드 live 경로가 키 부재로 실패하고 프론트 KEAD 직접 호출(`ODCLOUD_SERVICE_KEY` 보유)로 폴백되면서 "실시간 데이터" 배지가 정상적으로 뜸 — 다만 이 환경에서는 friendlinessScore가 실제로 화면에 찍히는 것까지는 확인하지 못함(5번의 "남은 간극" 참고, 백엔드 경로 자체는 신규 pytest로 검증됨).
+
+#### 남은 항목
+- 백엔드 `.env` 복구 및 API 키 재검증 — 여전히 미착수(운영 작업, 코드 밖)
+- `frontend/lib/kead-jobs.ts` 병렬 구현 정리(friendlinessScore 계산 편입 또는 경로 자체 재검토) — 오늘 범위 밖, 별도 판단 필요
+- Phase 3(접근성 & UX 일관성), Phase 4(확장 준비)는 착수 전
+
+---
+
+이 문서(`thesis_dev.md`)와 감사 보고서(`v2-audit-report.md`)를 기준으로 Phase 1, Phase 2 핵심 작업을 진행했으며, 남은 항목(`.env` 복구, `next lint` 정비, kead-jobs.ts 정리)과 Phase 3 착수 여부는 다음 단계에서 논의합니다.
