@@ -63,7 +63,7 @@ export function LandingHero({ liveJobsTotal, source = "live" }: LandingHeroProps
               />
               <button
                 type="submit"
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm text-white transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm text-white transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
                 aria-label="검색"
               >
                 →

@@ -39,7 +39,8 @@ export default function BookmarkButton({ storageKey, label = "찜" }: BookmarkBu
       type="button"
       onClick={toggle}
       aria-label={saved ? `${label} 해제` : `${label} 저장`}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+      aria-pressed={saved}
+      className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
         saved
           ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"

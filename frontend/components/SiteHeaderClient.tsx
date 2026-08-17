@@ -68,14 +68,14 @@ export default function SiteHeaderClient({ isLoggedIn }: SiteHeaderClientProps) 
         <div className="flex items-center gap-3">
           <Link
             href="/saved-jobs"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:border-slate-300 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:border-slate-300 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             aria-label="관심 공고"
           >
             ♥
           </Link>
           <Link
             href="/recommendations"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             aria-label="검색 페이지로 이동"
           >
             🔍

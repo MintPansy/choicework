@@ -2,6 +2,7 @@ import JobCard from "@/components/JobCard";
 import SourceBadge from "@/components/SourceBadge";
 import { DISABILITY_FILTER, computeDisabilityMatchPercent } from "@/lib/disability-match";
 import { getJobsWithMeta } from "@/lib/data";
+import { KOREA_PROVINCE_KEYS, provinceLabel } from "@/lib/job-regions";
 import { Job } from "@/types";
 
 interface RecommendationsPageProps {
@@ -117,12 +118,18 @@ export default async function RecommendationsPage({ searchParams }: Recommendati
 
             <label className="flex flex-col gap-1 text-sm text-slate-700">
               <span>지역</span>
-              <input
+              <select
                 name="region"
                 defaultValue={region}
-                placeholder="예: 서울, 경기"
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
-              />
+                className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+              >
+                <option value="">전체 지역</option>
+                {KOREA_PROVINCE_KEYS.map((key) => (
+                  <option key={key} value={key}>
+                    {provinceLabel(key)}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="flex flex-col gap-1 text-sm text-slate-700">
@@ -152,14 +159,14 @@ export default async function RecommendationsPage({ searchParams }: Recommendati
             <div className="flex items-end gap-2 md:col-span-2 lg:col-span-4">
               <button
                 type="submit"
-                className="rounded-xl bg-primary-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-800"
+                className="min-h-11 rounded-xl bg-primary-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-800"
               >
                 검색
               </button>
               {hasFilter && (
                 <a
                   href="/recommendations"
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  className="inline-flex min-h-11 items-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
                 >
                   초기화
                 </a>
@@ -180,7 +187,7 @@ export default async function RecommendationsPage({ searchParams }: Recommendati
         </section>
 
         <section className="mt-8 space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3" role="status" aria-live="polite">
             <p className="text-sm text-slate-600">
               검색 결과{" "}
               <span className="font-semibold text-slate-900">{filteredJobs.length}</span>건
@@ -200,7 +207,10 @@ export default async function RecommendationsPage({ searchParams }: Recommendati
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">
+            <div
+              role="status"
+              className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-600"
+            >
               <p className="font-medium text-slate-800">조건에 맞는 공고가 없습니다.</p>
               <p className="mt-1">장애 유형이나 지역 조건을 조정해 다시 검색해보세요.</p>
               <a href="/recommendations" className="mt-4 inline-block text-primary-700 underline">
